@@ -1,22 +1,18 @@
-# Environment & Secrets
-.env
-*.env
-!.env.example
-
-# Python Virtual Environments & Cache
+# Virtual environment
 .venv/
 venv/
 ENV/
+
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 
-# ADK Local Session / Artifact State
+# ADK local session state & env secrets
 .adk/
+**/.adk/
+.env
+**/.env
 
-# OS / IDE / Scratch
+# macOS
 .DS_Store
-.idea/
-.vscode/
-*.swp
-temp.ipynb
