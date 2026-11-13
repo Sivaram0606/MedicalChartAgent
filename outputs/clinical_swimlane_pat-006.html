@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FHIR Multi-Track Clinical Swimlane Graph — pat-006</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --panel: #111827;
+      --panel-alt: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --crit-bg: rgba(244, 63, 94, 0.16);
+      --crit-border: #f43f5e;
+      --warn-bg: rgba(245, 158, 11, 0.16);
+      --warn-border: #f59e0b;
+      --info-bg: rgba(56, 189, 248, 0.15);
+      --info-border: #38bdf8;
+      --norm-bg: rgba(16, 185, 129, 0.14);
+      --norm-border: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px 24px 40px;
+      line-height: 1.45;
+    }
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+    .title-block h1 { font-size: 1.22rem; font-weight: 700; }
+    .title-block p { color: var(--muted); font-size: 0.85rem; margin-top: 3px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .patient-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      background: #0f172a;
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .tab-btn {
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tab-btn.active { background: #2563eb; color: #fff; }
+    .filter-btn {
+      background: var(--panel-alt);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .filter-btn.active { border-color: #38bdf8; background: rgba(56, 189, 248, 0.18); }
+    .headline-banner {
+      padding: 12px 18px;
+      background: linear-gradient(90deg, rgba(37,99,235,0.18), rgba(244,63,94,0.14));
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .patient-chip { font-weight: 700; font-size: 0.95rem; color: #93c5fd; }
+    .legend { display: flex; gap: 14px; font-size: 0.78rem; color: var(--muted); align-items: center; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .swimlane-viewport {
+      position: relative;
+      overflow-x: auto;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .swimlane-grid { position: relative; display: grid; min-width: 1120px; }
+    .svg-overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .time-header-row, .track-row { display: grid; border-bottom: 1px solid var(--border); }
+    .track-row:last-child { border-bottom: none; }
+    .track-label-cell {
+      position: sticky; left: 0; z-index: 10;
+      background: #0f172a;
+      border-right: 2px solid var(--border);
+      padding: 16px 14px;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .track-title { font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 8px; }
+    .track-sub { font-size: 0.74rem; color: var(--muted); margin-top: 4px; }
+    .time-col-header {
+      padding: 14px 12px;
+      background: #0f172a;
+      border-right: 1px dashed var(--border);
+      text-align: center;
+    }
+    .date-str { font-weight: 700; font-size: 0.84rem; color: #e2e8f0; }
+    .phase-str { font-size: 0.73rem; color: #38bdf8; margin-top: 2px; text-transform: uppercase; }
+    .node-cell {
+      padding: 14px 10px;
+      border-right: 1px dashed rgba(51, 65, 85, 0.65);
+      display: flex; align-items: stretch; position: relative;
+    }
+    .event-card {
+      width: 100%;
+      border-radius: 10px;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border);
+      background: var(--panel-alt);
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+      position: relative; z-index: 6;
+    }
+    .event-card:hover, .event-card.highlighted { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.45); }
+    .event-card.dimmed { opacity: 0.28; }
+    .event-card.sev-critical { background: var(--crit-bg); border-color: var(--crit-border); }
+    .event-card.sev-warning { background: var(--warn-bg); border-color: var(--warn-border); }
+    .event-card.sev-info { background: var(--info-bg); border-color: var(--info-border); }
+    .event-card.sev-normal { background: var(--norm-bg); border-color: var(--norm-border); }
+    .card-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 6px; }
+    .badge {
+      font-size: 0.65rem; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+      text-transform: uppercase; background: rgba(15, 23, 42, 0.65); color: #f8fafc;
+    }
+    .node-id-tag { font-size: 0.65rem; color: var(--muted); font-family: monospace; }
+    .card-title { font-weight: 700; font-size: 0.82rem; margin-bottom: 5px; color: #ffffff; }
+    .card-summary { font-size: 0.75rem; color: #cbd5e1; }
+    .bottom-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; margin-top: 16px; }
+    @media (max-width: 960px) { .bottom-grid { grid-template-columns: 1fr; } }
+    .info-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+    .info-panel h3 { font-size: 0.95rem; margin-bottom: 10px; color: #93c5fd; }
+    .causal-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .causal-item {
+      padding: 9px 12px; border-radius: 8px; background: var(--panel-alt);
+      border-left: 3px solid #38bdf8; font-size: 0.8rem; cursor: pointer;
+    }
+    .causal-item:hover { background: rgba(56, 189, 248, 0.16); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="title-block">
+      <h1>FHIR Multi-Track Clinical Swimlane Graph</h1>
+      <p>Synchronizing 4 parallel HL7 FHIR R4 temporal tracks along a shared horizontal timeline</p>
+    </div>
+    <div class="controls">
+      <div class="patient-tabs" id="patientTabs"></div>
+      <button class="filter-btn active" id="toggleLinksBtn">Causal Connectors: ON</button>
+      <button class="filter-btn" id="filterCritBtn">Highlight Critical / Warning Only</button>
+    </div>
+  </div>
+
+  <div class="headline-banner">
+    <div>
+      <span class="patient-chip" id="patientBannerName"></span>
+      <span id="patientBannerHeadline" style="margin-left:10px; font-size:0.88rem; color:#e2e8f0;"></span>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:#f43f5e"></i> Critical / Alert</span>
+      <span><i class="dot" style="background:#f59e0b"></i> Dose Change / Held / Gap</span>
+      <span><i class="dot" style="background:#38bdf8"></i> Consult / Diagnostic</span>
+      <span><i class="dot" style="background:#10b981"></i> Baseline / Stable</span>
+    </div>
+  </div>
+
+  <div class="swimlane-viewport">
+    <div class="swimlane-grid" id="swimlaneGrid">
+      <svg class="svg-overlay" id="svgOverlay"></svg>
+      <div id="gridContent"></div>
+    </div>
+  </div>
+
+  <div class="bottom-grid">
+    <div class="info-panel">
+      <h3>Cross-Track Causal &amp; Temporal Correlations</h3>
+      <ul class="causal-list" id="causalList"></ul>
+    </div>
+    <div class="info-panel">
+      <h3>Clinical Event Inspector</h3>
+      <div style="color:var(--muted); font-size:0.84rem;" id="inspectorBody">
+        Click or hover over any node across the 4 parallel FHIR tracks to inspect clinical details.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const DATA = {
+  "selected_patient_id": "pat-006",
+  "tracks": [
+    {
+      "track_id": "track_1_encounters",
+      "track_number": 1,
+      "label": "Track 1 \u00b7 Encounters & Notes",
+      "subtitle": "Admissions, ED Visits, Consults & Triage",
+      "color": "#3b82f6"
+    },
+    {
+      "track_id": "track_2_medications",
+      "track_number": 2,
+      "label": "Track 2 \u00b7 Medications & Adherence",
+      "subtitle": "Starts, Dose Changes, Held Drugs & Barriers",
+      "color": "#8b5cf6"
+    },
+    {
+      "track_id": "track_3_diagnostics",
+      "track_number": 3,
+      "label": "Track 3 \u00b7 Labs, Vitals & Imaging",
+      "subtitle": "Biomarker Trajectories, CT & Echocardiography",
+      "color": "#06b6d4"
+    },
+    {
+      "track_id": "track_4_open_loops",
+      "track_number": 4,
+      "label": "Track 4 \u00b7 Open Loops & Safety Alerts",
+      "subtitle": "Dropped Follow-Ups, Toxicity & Action Triggers",
+      "color": "#f43f5e"
+    }
+  ],
+  "patients": {
+    "pat-001": {
+      "patient_id": "pat-001",
+      "patient_name": "Alex Jordan Conn",
+      "age_sex": "48yo Male",
+      "headline": "Acute Asthma Flare (PEF 54%) + Lisinopril Up-Titration Cough & Duplicate Brand/Generic Acetaminophen Exposure",
+      "timepoints": [
+        {
+          "time_id": "T1",
+          "date": "2024-07-10",
+          "display_date": "Jul 10, 2024",
+          "phase": "Prior Urgent Care",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "A1_1",
+              "title": "Urgent Care Strep Visit",
+              "badge": "RESOLVED",
+              "severity": "normal",
+              "summary": "Group A Strep pharyngitis treated safely.",
+              "details": "Sulfa allergy documented; treated with beta-lactam."
+            },
+            "track_2_medications": {
+              "node_id": "A1_2",
+              "title": "Augmentin + Acetaminophen",
+              "badge": "COMPLETED",
+              "severity": "info",
+              "summary": "Completed Augmentin; kept leftover Acetaminophen.",
+              "details": "Leftover Acetaminophen chewables remained at home."
+            },
+            "track_3_diagnostics": {
+              "node_id": "A1_3",
+              "title": "Rapid Strep (+), PEF 88%",
+              "badge": "BASELINE",
+              "severity": "normal",
+              "summary": "Baseline Peak Flow 88% predicted; Eos 180.",
+              "details": "Stable baseline pulmonary function."
+            },
+            "track_4_open_loops": {
+              "node_id": "A1_4",
+              "title": "Sulfa Allergy Flagged",
+              "badge": "ALLERGY",
+              "severity": "info",
+              "summary": "High-criticality Sulfonamide allergy recorded.",
+              "details": "Avoid TMP-SMX and sulfonamide derivatives."
+            }
+          }
+        },
+        {
+          "time_id": "T2",
+          "date": "2026-10-08",
+          "display_date": "Oct 08, 2026",
+          "phase": "PCP HTN Titration",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "A2_1",
+              "title": "PCP HTN Visit",
+              "badge": "OUTPATIENT",
+              "severity": "info",
+              "summary": "BP 148/92; mild throat tickle noted.",
+              "details": "Spirometry ordered for 10/28 (later missed)."
+            },
+            "track_2_medications": {
+              "node_id": "A2_2",
+              "title": "Lisinopril \u2191 5mg \u2192 10mg",
+              "badge": "DOSE UP",
+              "severity": "warning",
+              "summary": "Lisinopril doubled despite early dry cough.",
+              "details": "No ICS asthma controller on active med list."
+            },
+            "track_3_diagnostics": {
+              "node_id": "A2_3",
+              "title": "Eos 340 [H] | ALT 22 [N]",
+              "badge": "RISING EOS",
+              "severity": "warning",
+              "summary": "Eosinophils crept up to 340 cells/uL; ALT normal.",
+              "details": "Early airway inflammation prior to acute flare."
+            },
+            "track_4_open_loops": {
+              "node_id": "A2_4",
+              "title": "Missed 10/28 Spirometry",
+              "badge": "CARE GAP",
+              "severity": "warning",
+              "summary": "No-show to Pulmonology PFTs; no ICS controller.",
+              "details": "OPEN-002 controller therapy gap."
+            }
+          }
+        },
+        {
+          "time_id": "T3",
+          "date": "2026-11-12",
+          "display_date": "Nov 12, 2026 (ED Today)",
+          "phase": "ED Acute Dyspnea",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "A3_1",
+              "title": "ED Triage: SpO2 91%, RR 24",
+              "badge": "ED ACUTE",
+              "severity": "critical",
+              "summary": "Acute dyspnea, wheezing & 3-day fever/cough.",
+              "details": "BP 152/94, HR 104, Temp 100.2 F in Boston ZIP 02118."
+            },
+            "track_2_medications": {
+              "node_id": "A3_2",
+              "title": "Tylenol + Acetaminophen Overlap",
+              "badge": "DUPLICATE",
+              "severity": "critical",
+              "summary": "Taking Tylenol 4g/d + leftover Acetaminophen + Lisinopril.",
+              "details": "Brand + Generic duplicate active ingredient + ACEi cough."
+            },
+            "track_3_diagnostics": {
+              "node_id": "A3_3",
+              "title": "PEF 54% [LL] | Eos 520 | ALT 58",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "CXR hyperinflated; Eos 520 [HH]; ALT rose 22 \u2192 58.",
+              "details": "Acute bronchospasm + mild transaminitis."
+            },
+            "track_4_open_loops": {
+              "node_id": "A3_4",
+              "title": "OPEN-001 & OPEN-002 Action",
+              "badge": "ACTION",
+              "severity": "critical",
+              "summary": "Nebulizers/steroids, stop duplicate APAP, switch ACEi\u2192ARB.",
+              "details": "Start ICS controller prior to ED discharge."
+            }
+          }
+        }
+      ],
+      "causal_links": [
+        {
+          "from": "A2_2",
+          "to": "A3_1",
+          "label": "Lisinopril increase to 10mg worsened bradykinin cough alongside unmedicated eosinophilic asthma"
+        },
+        {
+          "from": "A1_2",
+          "to": "A3_2",
+          "label": "Leftover generic Acetaminophen combined with OTC brand Tylenol caused supratherapeutic APAP intake"
+        },
+        {
+          "from": "A3_2",
+          "to": "A3_3",
+          "label": "Duplicate acetaminophen exposure elevated ALT from 22 to 58 U/L"
+        }
+      ]
+    },
+    "pat-002": {
+      "patient_id": "pat-002",
+      "patient_name": "Maria Elena Reynolds",
+      "age_sex": "62yo Female",
+      "headline": "CYP3A4 Statin-Macrolide Rhabdomyolysis (CK 4,850) & Myoglobinuric AKI Requiring Immediate Lipitor + Metformin Hold",
+      "timepoints": [
+        {
+          "time_id": "T1",
+          "date": "2026-03-15",
+          "display_date": "Mar 15, 2026",
+          "phase": "Outpatient Baseline",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "B1_1",
+              "title": "PCP Chronic Care Visit",
+              "badge": "STABLE",
+              "severity": "normal",
+              "summary": "T2DM & HLD well controlled.",
+              "details": "Dr. S. Jenkins routine follow-up."
+            },
+            "track_2_medications": {
+              "node_id": "B1_2",
+              "title": "Lipitor 20mg + Metformin ER",
+              "badge": "ADHERENT",
+              "severity": "normal",
+              "summary": "Tolerating Lipitor 20mg & Metformin 500mg ER.",
+              "details": "No muscle symptoms at baseline."
+            },
+            "track_3_diagnostics": {
+              "node_id": "B1_3",
+              "title": "CK 110 [N] | Cr 0.85 [N]",
+              "badge": "BASELINE",
+              "severity": "normal",
+              "summary": "Normal renal function and normal CK.",
+              "details": "Baseline eGFR > 75."
+            },
+            "track_4_open_loops": {
+              "node_id": "B1_4",
+              "title": "Routine Monitoring",
+              "badge": "OK",
+              "severity": "normal",
+              "summary": "Annual labs normal.",
+              "details": "No active safety flags."
+            }
+          }
+        },
+        {
+          "time_id": "T2",
+          "date": "2026-11-02",
+          "display_date": "Nov 02, 2026",
+          "phase": "Outside Urgent Care",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "B2_1",
+              "title": "Urgent Care Sinusitis Visit",
+              "badge": "OUTSIDE UC",
+              "severity": "warning",
+              "summary": "Outside clinic treated acute sinusitis.",
+              "details": "Medication list not reconciled with PCP EHR."
+            },
+            "track_2_medications": {
+              "node_id": "B2_2",
+              "title": "Clarithromycin Added onto Lipitor",
+              "badge": "CYP3A4 DDI",
+              "severity": "critical",
+              "summary": "Strong CYP3A4 inhibitor started without holding Lipitor.",
+              "details": "Markedly elevates plasma atorvastatin levels."
+            },
+            "track_3_diagnostics": {
+              "node_id": "B2_3",
+              "title": "No Baseline Labs Checked",
+              "badge": "UNMONITORED",
+              "severity": "info",
+              "summary": "Progressive myocyte breakdown over 10 days.",
+              "details": "Thigh myalgias began 11/08."
+            },
+            "track_4_open_loops": {
+              "node_id": "B2_4",
+              "title": "Unreconciled Outside Rx",
+              "badge": "GAP",
+              "severity": "warning",
+              "summary": "No statin hold instruction given.",
+              "details": "Preventable DDI gap."
+            }
+          }
+        },
+        {
+          "time_id": "T3",
+          "date": "2026-11-12",
+          "display_date": "Nov 12, 2026 (ED Today)",
+          "phase": "ED Rhabdomyolysis",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "B3_1",
+              "title": "ED Triage: Dark Urine & Weakness",
+              "badge": "ED ACUTE",
+              "severity": "critical",
+              "summary": "BP 112/68, HR 96; proximal weakness x4d.",
+              "details": "Portland ZIP 97205."
+            },
+            "track_2_medications": {
+              "node_id": "B3_2",
+              "title": "HOLD Lipitor & Metformin STAT",
+              "badge": "HOLD BOTH",
+              "severity": "critical",
+              "summary": "Stop Lipitor immediately; hold Metformin in AKI.",
+              "details": "Aggressive IV fluids initiated."
+            },
+            "track_3_diagnostics": {
+              "node_id": "B3_3",
+              "title": "CK 4,850 [HH] | Cr 1.92 [HH]",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "Rhabdomyolysis + acute pigment nephropathy.",
+              "details": "Renal US excludes obstruction."
+            },
+            "track_4_open_loops": {
+              "node_id": "B3_4",
+              "title": "OPEN-011 Inpatient Hydration",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "Serial CK/BMP q6h; hold Metformin until eGFR > 45.",
+              "details": "Switch to pravastatin/rosuvastatin post-recovery."
+            }
+          }
+        }
+      ],
+      "causal_links": [
+        {
+          "from": "B2_2",
+          "to": "B3_3",
+          "label": "Clarithromycin CYP3A4 inhibition of Lipitor triggered rhabdomyolysis (CK 4,850) and AKI (Cr 1.92)"
+        },
+        {
+          "from": "B3_3",
+          "to": "B3_2",
+          "label": "Acute kidney injury (Cr 1.92) requires immediate temporary hold of Metformin to prevent lactic acidosis"
+        }
+      ]
+    },
+    "pat-003": {
+      "patient_id": "pat-003",
+      "patient_name": "David Raj Patel",
+      "age_sex": "41yo Male",
+      "headline": "Acute NSAID-Induced Upper GI Bleed (Hgb 14.6 \u2192 8.4 g/dL, BP 98/62) After Unprotected High-Dose Advil",
+      "timepoints": [
+        {
+          "time_id": "T1",
+          "date": "2026-04-18",
+          "display_date": "Apr 18, 2026",
+          "phase": "Baseline",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "C1_1",
+              "title": "Annual PCP Checkup",
+              "badge": "STABLE",
+              "severity": "normal",
+              "summary": "COPD stable; prior GERD asymptomatic.",
+              "details": "Off PPI since 2023."
+            },
+            "track_2_medications": {
+              "node_id": "C1_2",
+              "title": "Albuterol PRN; Prilosec Stopped",
+              "badge": "NO PPI",
+              "severity": "info",
+              "summary": "No gastroprotective PPI active.",
+              "details": "Prilosec discontinued previously."
+            },
+            "track_3_diagnostics": {
+              "node_id": "C1_3",
+              "title": "Hgb 14.6 [N] | BUN 14 [N]",
+              "badge": "BASELINE",
+              "severity": "normal",
+              "summary": "Normal baseline hemoglobin.",
+              "details": "Cr 0.9 mg/dL."
+            },
+            "track_4_open_loops": {
+              "node_id": "C1_4",
+              "title": "History of GERD",
+              "badge": "CONTEXT",
+              "severity": "info",
+              "summary": "Susceptible to mucosal injury if given NSAIDs.",
+              "details": "Needs PPI co-prescription if NSAIDs used."
+            }
+          }
+        },
+        {
+          "time_id": "T2",
+          "date": "2026-10-20",
+          "display_date": "Oct 20, 2026",
+          "phase": "NSAID Escalation",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "C2_1",
+              "title": "Ortho Visit: Shoulder Strain",
+              "badge": "OUTPATIENT",
+              "severity": "info",
+              "summary": "Rotator cuff tendinopathy.",
+              "details": "Recommended short PRN ibuprofen."
+            },
+            "track_2_medications": {
+              "node_id": "C2_2",
+              "title": "Advil Self-Escalated 2,400mg/d",
+              "badge": "HIGH NSAID",
+              "severity": "critical",
+              "summary": "12 tabs/day Advil x3 wks without PPI.",
+              "details": "Prostaglandin inhibition eroded gastric mucosa."
+            },
+            "track_3_diagnostics": {
+              "node_id": "C2_3",
+              "title": "Occult Mucosal Erosion",
+              "badge": "UNMONITORED",
+              "severity": "warning",
+              "summary": "Progressive epigastric burning -> melena.",
+              "details": "2 days of tarry stools."
+            },
+            "track_4_open_loops": {
+              "node_id": "C2_4",
+              "title": "Unprotected High-Dose NSAID",
+              "badge": "RISK",
+              "severity": "warning",
+              "summary": "No PPI gastroprotection.",
+              "details": "High UGIB risk."
+            }
+          }
+        },
+        {
+          "time_id": "T3",
+          "date": "2026-11-12",
+          "display_date": "Nov 12, 2026 (ED Today)",
+          "phase": "ED Acute UGIB",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "C3_1",
+              "title": "ED Triage: BP 98/62, HR 114",
+              "badge": "HEMODYNAMIC",
+              "severity": "critical",
+              "summary": "Melena & orthostasis in SF ZIP 94108.",
+              "details": "2 large-bore IVs placed."
+            },
+            "track_2_medications": {
+              "node_id": "C3_2",
+              "title": "STOP Advil \u2192 IV Pantoprazole",
+              "badge": "STAT IV PPI",
+              "severity": "critical",
+              "summary": "Permanent NSAID ban + IV Pantoprazole.",
+              "details": "Hold any antiplatelets."
+            },
+            "track_3_diagnostics": {
+              "node_id": "C3_3",
+              "title": "Hgb 8.4 [LL] | BUN 46 [HH]",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "6.2 g/dL Hgb drop; upright CXR no free air.",
+              "details": "Consistent with brisk peptic ulcer bleed."
+            },
+            "track_4_open_loops": {
+              "node_id": "C3_4",
+              "title": "OPEN-021 Emergent GI EGD",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "Type & crossmatch + emergent EGD + H. pylori test.",
+              "details": "ICU/step-down admission."
+            }
+          }
+        }
+      ],
+      "causal_links": [
+        {
+          "from": "C1_2",
+          "to": "C2_2",
+          "label": "Stopped Prilosec left gastric mucosa unprotected when Advil was self-escalated to 2,400 mg/day"
+        },
+        {
+          "from": "C2_2",
+          "to": "C3_3",
+          "label": "3 weeks of high-dose Advil caused acute upper GI bleed (Hgb 14.6 \u2192 8.4 g/dL, BUN 46)"
+        }
+      ]
+    },
+    "pat-004": {
+      "patient_id": "pat-004",
+      "patient_name": "Evelyn Grace Carter",
+      "age_sex": "70yo Female",
+      "headline": "Supratherapeutic Coumadin Toxicity (INR 6.4) & Active Epistaxis Following Missed INR Monitoring",
+      "timepoints": [
+        {
+          "time_id": "T1",
+          "date": "2026-09-10",
+          "display_date": "Sep 10, 2026",
+          "phase": "Therapeutic Baseline",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "D1_1",
+              "title": "Anticoagulation Clinic",
+              "badge": "THERAPEUTIC",
+              "severity": "normal",
+              "summary": "AFib stable; next INR scheduled 10/08.",
+              "details": "Austin Heart & Vascular."
+            },
+            "track_2_medications": {
+              "node_id": "D1_2",
+              "title": "Coumadin 5mg QD",
+              "badge": "STABLE",
+              "severity": "normal",
+              "summary": "Maintaining target INR 2.0-3.0.",
+              "details": "Aspirin previously stopped."
+            },
+            "track_3_diagnostics": {
+              "node_id": "D1_3",
+              "title": "INR 2.4 [Therapeutic]",
+              "badge": "IN RANGE",
+              "severity": "normal",
+              "summary": "Stable from Aug INR 2.3.",
+              "details": "No bruising or bleeding."
+            },
+            "track_4_open_loops": {
+              "node_id": "D1_4",
+              "title": "Monthly INR Required",
+              "badge": "TRACKER",
+              "severity": "info",
+              "summary": "Narrow therapeutic index.",
+              "details": "Due Oct 2026."
+            }
+          }
+        },
+        {
+          "time_id": "T2",
+          "date": "2026-10-08",
+          "display_date": "Oct 08 \u2013 Nov 05, 2026",
+          "phase": "Monitoring Gap",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "D2_1",
+              "title": "Missed 2 INR Clinic Visits",
+              "badge": "NO-SHOW",
+              "severity": "warning",
+              "summary": "8 weeks without INR surveillance.",
+              "details": "Unmonitored anticoagulation."
+            },
+            "track_2_medications": {
+              "node_id": "D2_2",
+              "title": "Coumadin + Herbal Supplements",
+              "badge": "CYP2C9 INT",
+              "severity": "warning",
+              "summary": "Started OTC cranberry/garlic concentrates.",
+              "details": "Potentiates warfarin anticoagulation."
+            },
+            "track_3_diagnostics": {
+              "node_id": "D2_3",
+              "title": "Unmonitored Rising INR",
+              "badge": "BLIND SPOT",
+              "severity": "warning",
+              "summary": "Forearm bruising developed 3 days ago.",
+              "details": "No lab drawn until ED."
+            },
+            "track_4_open_loops": {
+              "node_id": "D2_4",
+              "title": "Overdue Anticoag Recall",
+              "badge": "HIGH",
+              "severity": "warning",
+              "summary": "Missed recall outreach.",
+              "details": "Candidate for DOAC switch."
+            }
+          }
+        },
+        {
+          "time_id": "T3",
+          "date": "2026-11-12",
+          "display_date": "Nov 12, 2026 (ED Today)",
+          "phase": "ED Epistaxis",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "D3_1",
+              "title": "ED Triage: Epistaxis & AFib HR 112",
+              "badge": "ED BLEED",
+              "severity": "critical",
+              "summary": "45-min nosebleed & ecchymoses (ZIP 78701).",
+              "details": "Direct nasal compression & packing."
+            },
+            "track_2_medications": {
+              "node_id": "D3_2",
+              "title": "HOLD Coumadin + Give Vitamin K",
+              "badge": "REVERSAL",
+              "severity": "critical",
+              "summary": "Hold Coumadin, stop supplements, plan DOAC switch.",
+              "details": "Low-dose phytonadione administered."
+            },
+            "track_3_diagnostics": {
+              "node_id": "D3_3",
+              "title": "STAT INR 6.4 [HH Critical]",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "Markedly supratherapeutic INR 6.4.",
+              "details": "Repeat INR in 12-24h."
+            },
+            "track_4_open_loops": {
+              "node_id": "D3_4",
+              "title": "OPEN-031 DOAC Transition",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "Transition to Apixaban once INR < 2.0.",
+              "details": "Eliminates monthly INR monitoring gap."
+            }
+          }
+        }
+      ],
+      "causal_links": [
+        {
+          "from": "D2_1",
+          "to": "D3_3",
+          "label": "8-week missed INR gap + OTC CYP2C9 supplements allowed INR to climb to 6.4"
+        },
+        {
+          "from": "D3_3",
+          "to": "D3_1",
+          "label": "Supratherapeutic INR 6.4 caused persistent epistaxis and ecchymoses"
+        }
+      ]
+    },
+    "pat-005": {
+      "patient_id": "pat-005",
+      "patient_name": "Arthur Pendelton",
+      "age_sex": "68yo Male",
+      "headline": "Post-ADHF Volume Overload (Lasix Self-Cut + Jardiance PA Block) & Renal Recovery Unlocking Held GDMT",
+      "timepoints": [
+        {
+          "time_id": "T1",
+          "date": "2026-05-19",
+          "display_date": "May 19, 2026",
+          "phase": "Euvolemic Baseline",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "N1_1",
+              "title": "PCP Visit",
+              "badge": "EUVOLEMIC",
+              "severity": "normal",
+              "summary": "Wt 183 lbs, BP 124/76; 35-pk-yr history.",
+              "details": "Stable chronic HFrEF (EF 35%), CKD3b, T2DM."
+            },
+            "track_2_medications": {
+              "node_id": "N1_2",
+              "title": "Baseline GDMT + Metformin",
+              "badge": "ADHERENT",
+              "severity": "normal",
+              "summary": "Lasix 20mg, Lisinopril 20mg, Coreg, Metformin, Eliquis.",
+              "details": "Stable outpatient regimen."
+            },
+            "track_3_diagnostics": {
+              "node_id": "N1_3",
+              "title": "Cr 1.40 | BNP 640 | A1c 7.1%",
+              "badge": "BASELINE",
+              "severity": "normal",
+              "summary": "eGFR 52 \u00b7 K+ 4.4 \u00b7 PFTs FEV1/FVC 0.68.",
+              "details": "Outpatient baseline."
+            },
+            "track_4_open_loops": {
+              "node_id": "N1_4",
+              "title": "High-Risk Lung History",
+              "badge": "CONTEXT",
+              "severity": "info",
+              "summary": "35-pack-year smoking history.",
+              "details": "Anchors Fleischner lung nodule criteria."
+            }
+          }
+        },
+        {
+          "time_id": "T2",
+          "date": "2026-10-10",
+          "display_date": "Oct 10\u201314, 2026",
+          "phase": "ADHF Admission & AKI",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "N2_1",
+              "title": "ADHF Admission & Cards Consult",
+              "badge": "INPATIENT",
+              "severity": "critical",
+              "summary": "Wt 196 \u2192 184 lbs (-5.5L IV diuresis).",
+              "details": "Cardiology set Cr < 1.6 threshold to start Entresto."
+            },
+            "track_2_medications": {
+              "node_id": "N2_2",
+              "title": "HELD ACEi/Metformin; +Jardiance/Lasix\u2191",
+              "badge": "REGIMEN CHG",
+              "severity": "warning",
+              "summary": "Lisinopril & Metformin HELD for AKI; Lasix 40mg + Jardiance.",
+              "details": "Discharged 10/14."
+            },
+            "track_3_diagnostics": {
+              "node_id": "N2_3",
+              "title": "Cr 2.30\u21921.75 | BNP 4,420 | 7mm Nodule",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "TTE EF 30-35%; CT Chest incidental 7mm RUL nodule.",
+              "details": "AKI improving at discharge."
+            },
+            "track_4_open_loops": {
+              "node_id": "N2_4",
+              "title": "OPEN-103 Unordered 6-mo CT",
+              "badge": "HIGH",
+              "severity": "warning",
+              "summary": "Fleischner Apr 2027 CT Chest never ordered.",
+              "details": "HF clinic set for 10/24."
+            }
+          }
+        },
+        {
+          "time_id": "T3",
+          "date": "2026-10-24",
+          "display_date": "Oct 15\u201326, 2026",
+          "phase": "Post-Discharge Gaps",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "N3_1",
+              "title": "NO-SHOW: HF Clinic (10/24)",
+              "badge": "MISSED VISIT",
+              "severity": "warning",
+              "summary": "Missed HF follow-up (transportation).",
+              "details": "OPEN-104 care transition gap."
+            },
+            "track_2_medications": {
+              "node_id": "N3_2",
+              "title": "Jardiance PA Blocked + Lasix Cut",
+              "badge": "NON-ADHERENT",
+              "severity": "critical",
+              "summary": "$180 PA blocked Jardiance; self-cut Lasix 40\u219220mg.",
+              "details": "Cut loop diuretic in half due to urination."
+            },
+            "track_3_diagnostics": {
+              "node_id": "N3_3",
+              "title": "+7.5 lb Fluid Re-accumulation",
+              "badge": "UNMONITORED",
+              "severity": "warning",
+              "summary": "Progressive edema & dyspnea.",
+              "details": "Weight rose 184 -> 191.5 lbs."
+            },
+            "track_4_open_loops": {
+              "node_id": "N3_4",
+              "title": "Compounded Readmission Risk",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "Under-diuresed + off SGLT2i + off RAASi.",
+              "details": "Triggers OPEN-101."
+            }
+          }
+        },
+        {
+          "time_id": "T4",
+          "date": "2026-11-12",
+          "display_date": "Nov 12, 2026 (Today)",
+          "phase": "Triage & Action Plan",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "N4_1",
+              "title": "Triage: SpO2 93%, BP 148/90",
+              "badge": "TODAY",
+              "severity": "critical",
+              "summary": "2+ shin edema, Wt 191.5 lbs (Chicago ZIP 60611).",
+              "details": "Early ADHF decompensation."
+            },
+            "track_2_medications": {
+              "node_id": "N4_2",
+              "title": "Restore Lasix 40mg + Start Entresto/Metformin",
+              "badge": "UNLOCK GDMT",
+              "severity": "warning",
+              "summary": "Submit Jardiance PA; resume GDMT & Metformin.",
+              "details": "36h washout already satisfied since ACEi held."
+            },
+            "track_3_diagnostics": {
+              "node_id": "N4_3",
+              "title": "Cr 1.50 (eGFR 48) | BNP 1,850 | A1c 7.9%",
+              "badge": "RENAL OK",
+              "severity": "critical",
+              "summary": "Renal recovery unlocks ACEi/ARNI & Metformin!",
+              "details": "NT-proBNP doubled to 1,850."
+            },
+            "track_4_open_loops": {
+              "node_id": "N4_4",
+              "title": "Close OPEN-101, 102, 103",
+              "badge": "ACTION",
+              "severity": "critical",
+              "summary": "1. Diurese & PA 2. Start Entresto/Metformin 3. Order RUL CT.",
+              "details": "Prevents inpatient readmission."
+            }
+          }
+        }
+      ],
+      "causal_links": [
+        {
+          "from": "N2_3",
+          "to": "N2_2",
+          "label": "Cardiorenal AKI (Cr 2.30) forced holding Lisinopril & Metformin"
+        },
+        {
+          "from": "N3_2",
+          "to": "N4_1",
+          "label": "Self-cutting Lasix + $180 Jardiance PA block caused +7.5 lb fluid gain & BNP 1,850"
+        },
+        {
+          "from": "N4_3",
+          "to": "N4_2",
+          "label": "Renal recovery (Cr 1.50, eGFR 48) unlocks Entresto/ACEi and Metformin restart today"
+        }
+      ]
+    },
+    "pat-006": {
+      "patient_id": "pat-006",
+      "patient_name": "Elena Rostova",
+      "age_sex": "54yo Female",
+      "headline": "Methotrexate Hepatotoxicity (ALT 92/AST 78), Iron-Synthroid Malabsorption (TSH 6.8) & Stalled Humira Start",
+      "timepoints": [
+        {
+          "time_id": "T1",
+          "date": "2026-04-10",
+          "display_date": "Apr 10, 2026",
+          "phase": "Baseline",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "E1_1",
+              "title": "Routine Outpatient Care",
+              "badge": "STABLE",
+              "severity": "normal",
+              "summary": "RA & Hypothyroidism controlled.",
+              "details": "Baseline labs normal."
+            },
+            "track_2_medications": {
+              "node_id": "E1_2",
+              "title": "MTX 15mg/wk + Synthroid 75mcg",
+              "badge": "TOLERATED",
+              "severity": "normal",
+              "summary": "Stable on MTX 15mg & morning Synthroid.",
+              "details": "No iron supplement yet."
+            },
+            "track_3_diagnostics": {
+              "node_id": "E1_3",
+              "title": "ALT 19 | TSH 2.4 | Hgb 12.4",
+              "badge": "NORMAL",
+              "severity": "normal",
+              "summary": "Normal LFTs, euthyroid, normal Hgb.",
+              "details": "AST 22 U/L."
+            },
+            "track_4_open_loops": {
+              "node_id": "E1_4",
+              "title": "Sulfa Allergy Documented",
+              "badge": "ALLERGY",
+              "severity": "info",
+              "summary": "Moderate rash to TMP-SMX.",
+              "details": "Active allergy flag."
+            }
+          }
+        },
+        {
+          "time_id": "T2",
+          "date": "2026-09-18",
+          "display_date": "Sep 18, 2026",
+          "phase": "ED NSAID Gastritis",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "E2_1",
+              "title": "ED Visit: Gastritis & Anemia",
+              "badge": "ED VISIT",
+              "severity": "critical",
+              "summary": "Epigastric pain after OTC Ibuprofen.",
+              "details": "Advised GI EGD referral."
+            },
+            "track_2_medications": {
+              "node_id": "E2_2",
+              "title": "STOP Ibuprofen; +Iron & Protonix",
+              "badge": "NEW IRON",
+              "severity": "warning",
+              "summary": "Started morning Ferrous Sulfate WITH Synthroid!",
+              "details": "Unrecognized chelation interaction."
+            },
+            "track_3_diagnostics": {
+              "node_id": "E2_3",
+              "title": "Hgb 9.8 [L] | Ferritin 12 | ALT 24",
+              "badge": "ANEMIA",
+              "severity": "warning",
+              "summary": "Microcytic blood-loss anemia; LFTs normal.",
+              "details": "Hemoccult borderline (+)."
+            },
+            "track_4_open_loops": {
+              "node_id": "E2_4",
+              "title": "OPEN-204 GI EGD Not Ordered",
+              "badge": "MEDIUM",
+              "severity": "warning",
+              "summary": "Outpatient EGD referral dropped.",
+              "details": "Needs GI order."
+            }
+          }
+        },
+        {
+          "time_id": "T3",
+          "date": "2026-10-05",
+          "display_date": "Oct 05\u201312, 2026",
+          "phase": "Rheum Flare & TB Screen",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "E3_1",
+              "title": "Rheumatology Consult",
+              "badge": "FLARE",
+              "severity": "info",
+              "summary": "RA flare off NSAIDs; planned Humira.",
+              "details": "Dr. P. Nair."
+            },
+            "track_2_medications": {
+              "node_id": "E3_2",
+              "title": "MTX \u219120mg/wk + Prednisone Taper",
+              "badge": "DOSE UP",
+              "severity": "warning",
+              "summary": "MTX increased; 21d steroid taper (ended 10/26).",
+              "details": "Humira held pending TB test."
+            },
+            "track_3_diagnostics": {
+              "node_id": "E3_3",
+              "title": "QuantiFERON: INDETERMINATE",
+              "badge": "ABNORMAL",
+              "severity": "warning",
+              "summary": "Low mitogen response due to Prednisone.",
+              "details": "Drawn 10/12 on steroids."
+            },
+            "track_4_open_loops": {
+              "node_id": "E3_4",
+              "title": "OPEN-203 Humira Stalled",
+              "badge": "HIGH",
+              "severity": "warning",
+              "summary": "Repeat TB test needed now off steroids.",
+              "details": "Blocks biologic start."
+            }
+          }
+        },
+        {
+          "time_id": "T4",
+          "date": "2026-11-12",
+          "display_date": "Nov 12, 2026 (Today)",
+          "phase": "Toxicity & Malabsorption",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "E4_1",
+              "title": "Triage: Nausea & Exhaustion",
+              "badge": "TODAY",
+              "severity": "critical",
+              "summary": "2w nausea & severe fatigue (Seattle ZIP 98104).",
+              "details": "Vitals stable."
+            },
+            "track_2_medications": {
+              "node_id": "E4_2",
+              "title": "Hold/Cut MTX; Separate Iron \u22654h",
+              "badge": "ACTION",
+              "severity": "critical",
+              "summary": "Reduce/hold MTX + \u2191Folic Acid; move Iron to dinner.",
+              "details": "Do not increase Synthroid prematurely."
+            },
+            "track_3_diagnostics": {
+              "node_id": "E4_3",
+              "title": "ALT 92 [HH] | AST 78 | TSH 6.8 [H]",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "MTX transaminitis + Iron-chelated hypothyroidism.",
+              "details": "Hgb improved to 10.9."
+            },
+            "track_4_open_loops": {
+              "node_id": "E4_4",
+              "title": "Resolve OPEN-201..204",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "1. Hold MTX 2. Separate Iron 3. Repeat QFT 4. GI EGD.",
+              "details": "Full 4-loop closure."
+            }
+          }
+        }
+      ],
+      "causal_links": [
+        {
+          "from": "E2_2",
+          "to": "E4_3",
+          "label": "Morning Ferrous Sulfate chelated Synthroid absorption, spiking TSH 2.4 \u2192 6.8 mIU/L"
+        },
+        {
+          "from": "E3_2",
+          "to": "E4_3",
+          "label": "Methotrexate increase to 20mg/wk caused acute hepatotoxicity (ALT 92 / AST 78) & nausea"
+        },
+        {
+          "from": "E3_2",
+          "to": "E3_3",
+          "label": "Prednisone taper caused indeterminate QuantiFERON-TB, stalling Humira"
+        }
+      ]
+    },
+    "pat-007": {
+      "patient_id": "pat-007",
+      "patient_name": "Marcus Vance",
+      "age_sex": "42yo Male",
+      "headline": "Unsafe Chlorthalidone on K+ 3.2 mEq/L (Calf Cramps) & Unreviewed ARR=95 Confirming Conn's Syndrome",
+      "timepoints": [
+        {
+          "time_id": "T1",
+          "date": "2025-11-10",
+          "display_date": "Nov 10, 2025",
+          "phase": "Spontaneous Low K+",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "V1_1",
+              "title": "Outpatient HTN Visit",
+              "badge": "RESISTANT HTN",
+              "severity": "info",
+              "summary": "42yo w/ persistent HTN.",
+              "details": "Off diuretics."
+            },
+            "track_2_medications": {
+              "node_id": "V1_2",
+              "title": "Lisinopril 40mg + Norvasc 5mg",
+              "badge": "DUAL TX",
+              "severity": "normal",
+              "summary": "Adherent on ACEi + CCB.",
+              "details": "No diuretic exposure."
+            },
+            "track_3_diagnostics": {
+              "node_id": "V1_3",
+              "title": "K+ 3.4 mEq/L [L]",
+              "badge": "CLUE",
+              "severity": "warning",
+              "summary": "Spontaneous hypokalemia off diuretics.",
+              "details": "Red flag for hyperaldosteronism."
+            },
+            "track_4_open_loops": {
+              "node_id": "V1_4",
+              "title": "Secondary HTN Clue",
+              "badge": "CONTEXT",
+              "severity": "info",
+              "summary": "Prompted Aug 2026 workup.",
+              "details": "OSA also treated."
+            }
+          }
+        },
+        {
+          "time_id": "T2",
+          "date": "2026-08-18",
+          "display_date": "Aug 14\u201318, 2026",
+          "phase": "Unreviewed ARR=95",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "V2_1",
+              "title": "Secondary HTN Workup",
+              "badge": "WORKUP",
+              "severity": "info",
+              "summary": "BP 165/104; PAC/Renin ordered.",
+              "details": "Dr. S. Chen."
+            },
+            "track_2_medications": {
+              "node_id": "V2_2",
+              "title": "Unchanged Regimen",
+              "badge": "WAITING LABS",
+              "severity": "normal",
+              "summary": "Awaiting send-out endocrine panel.",
+              "details": "No MRA started."
+            },
+            "track_3_diagnostics": {
+              "node_id": "V2_3",
+              "title": "ARR = 95 [CRITICAL HIGH]",
+              "badge": "CONN'S DX",
+              "severity": "critical",
+              "summary": "Aldosterone 28.5, Renin 0.3 (ARR 95 > 30).",
+              "details": "Diagnostic for Primary Hyperaldosteronism."
+            },
+            "track_4_open_loops": {
+              "node_id": "V2_4",
+              "title": "OPEN-302 Unreviewed Send-Out",
+              "badge": "DROPPED",
+              "severity": "critical",
+              "summary": "Resulted 08/18 \u2014 never reviewed!",
+              "details": "Left untreated for 12 weeks."
+            }
+          }
+        },
+        {
+          "time_id": "T3",
+          "date": "2026-11-08",
+          "display_date": "Nov 08, 2026",
+          "phase": "ED Hypertensive Urgency",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "V3_1",
+              "title": "ED Visit: BP 210/118",
+              "badge": "ED URGENCY",
+              "severity": "critical",
+              "summary": "Severe occipital headache -> 164/96.",
+              "details": "Given single KCl dose."
+            },
+            "track_2_medications": {
+              "node_id": "V3_2",
+              "title": "NEW Chlorthalidone 25mg!",
+              "badge": "UNSAFE RX",
+              "severity": "critical",
+              "summary": "Potassium-wasting thiazide added + Norvasc \u219110mg.",
+              "details": "Missed ARR=95 & low K+."
+            },
+            "track_3_diagnostics": {
+              "node_id": "V3_3",
+              "title": "ED K+ 3.2 [LL] | CT Head Neg",
+              "badge": "LOW K+",
+              "severity": "critical",
+              "summary": "K+ already 3.2 BEFORE Chlorthalidone!",
+              "details": "Cr 0.9 mg/dL."
+            },
+            "track_4_open_loops": {
+              "node_id": "V3_4",
+              "title": "OPEN-301 Hypokalemia Hazard",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "High risk of cardiac arrhythmia.",
+              "details": "Thiazide + aldosterone K+ wasting."
+            }
+          }
+        },
+        {
+          "time_id": "T4",
+          "date": "2026-11-12",
+          "display_date": "Nov 12, 2026 (Today)",
+          "phase": "Today's Triage Alert",
+          "tracks": {
+            "track_1_encounters": {
+              "node_id": "V4_1",
+              "title": "Triage: Calf Cramps & BP 168/102",
+              "badge": "TODAY",
+              "severity": "critical",
+              "summary": "Symptomatic muscle cramps x2d (Denver ZIP 80203).",
+              "details": "Acute hypokalemia symptoms."
+            },
+            "track_2_medications": {
+              "node_id": "V4_2",
+              "title": "STOP Chlorthalidone \u2192 Start MRA",
+              "badge": "STOP & SWITCH",
+              "severity": "critical",
+              "summary": "Stop Chlorthalidone; give KCl + start Spironolactone.",
+              "details": "Targets root aldosterone excess."
+            },
+            "track_3_diagnostics": {
+              "node_id": "V4_3",
+              "title": "STAT BMP/K+, 12-Lead ECG & Adrenal CT",
+              "badge": "STAT ORDERS",
+              "severity": "critical",
+              "summary": "Check STAT K+ & QTc/U-waves; order Adrenal CT.",
+              "details": "Adenoma vs. hyperplasia."
+            },
+            "track_4_open_loops": {
+              "node_id": "V4_4",
+              "title": "Resolve OPEN-301 & OPEN-302",
+              "badge": "CRITICAL",
+              "severity": "critical",
+              "summary": "1. Stop thiazide & STAT K+ 2. Adrenal CT + Endocrine.",
+              "details": "Prevents arrhythmic arrest."
+            }
+          }
+        }
+      ],
+      "causal_links": [
+        {
+          "from": "V2_3",
+          "to": "V2_4",
+          "label": "ARR = 95 returned 08/18 confirming Conn's Syndrome but remained unreviewed"
+        },
+        {
+          "from": "V2_4",
+          "to": "V3_1",
+          "label": "Untreated Primary Hyperaldosteronism drove BP 210/118 ED crisis"
+        },
+        {
+          "from": "V3_3",
+          "to": "V3_2",
+          "label": "ED started Chlorthalidone 25mg despite K+ 3.2 mEq/L, causing today's calf cramps"
+        }
+      ]
+    }
+  }
+};
+    let currentPatientId = DATA.selected_patient_id;
+    let showLinks = true;
+    let criticalOnly = false;
+
+    function esc(val) {
+      const s = String(val ?? "");
+      return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function renderPatientTabs() {
+      const container = document.getElementById("patientTabs");
+      container.innerHTML = "";
+      Object.values(DATA.patients).forEach(p => {
+        const btn = document.createElement("button");
+        btn.className = "tab-btn" + (p.patient_id === currentPatientId ? " active" : "");
+        btn.textContent = p.patient_id + " · " + p.patient_name;
+        btn.onclick = () => { currentPatientId = p.patient_id; renderAll(); };
+        container.appendChild(btn);
+      });
+    }
+
+    function renderGrid() {
+      const pdata = DATA.patients[currentPatientId];
+      document.getElementById("patientBannerName").textContent =
+        pdata.patient_name + " (" + pdata.patient_id + ", " + pdata.age_sex + ")";
+      document.getElementById("patientBannerHeadline").textContent = pdata.headline;
+
+      const tps = pdata.timepoints;
+      const colTemplate = "230px repeat(" + tps.length + ", minmax(195px, 1fr))";
+      const content = document.getElementById("gridContent");
+      content.innerHTML = "";
+
+      const headerRow = document.createElement("div");
+      headerRow.className = "time-header-row";
+      headerRow.style.gridTemplateColumns = colTemplate;
+
+      const corner = document.createElement("div");
+      corner.className = "track-label-cell";
+      corner.innerHTML = '<div class="track-title">Shared Timeline →</div><div class="track-sub">4 FHIR Tracks</div>';
+      headerRow.appendChild(corner);
+
+      tps.forEach(tp => {
+        const th = document.createElement("div");
+        th.className = "time-col-header";
+        th.innerHTML = '<div class="date-str">' + esc(tp.display_date) + '</div><div class="phase-str">' + esc(tp.phase) + '</div>';
+        headerRow.appendChild(th);
+      });
+      content.appendChild(headerRow);
+
+      DATA.tracks.forEach(track => {
+        const row = document.createElement("div");
+        row.className = "track-row";
+        row.style.gridTemplateColumns = colTemplate;
+
+        const labelCell = document.createElement("div");
+        labelCell.className = "track-label-cell";
+        labelCell.innerHTML =
+          '<div class="track-title"><span class="dot" style="background:' + esc(track.color) + '"></span>' +
+          esc(track.label) + '</div><div class="track-sub">' + esc(track.subtitle) + '</div>';
+        row.appendChild(labelCell);
+
+        tps.forEach(tp => {
+          const node = tp.tracks[track.track_id];
+          const cell = document.createElement("div");
+          cell.className = "node-cell";
+
+          const sevClass = ["critical", "warning", "info", "normal"].includes(node.severity) ? node.severity : "info";
+          const card = document.createElement("div");
+          card.className = "event-card sev-" + sevClass;
+          card.id = "node-" + esc(node.node_id);
+          if (criticalOnly && sevClass !== "critical" && sevClass !== "warning") {
+            card.classList.add("dimmed");
+          }
+
+          card.innerHTML =
+            '<div class="card-top"><span class="badge">' + esc(node.badge) + '</span>' +
+            '<span class="node-id-tag">' + esc(node.node_id) + '</span></div>' +
+            '<div class="card-title">' + esc(node.title) + '</div>' +
+            '<div class="card-summary">' + esc(node.summary) + '</div>';
+
+          card.onmouseenter = () => inspectNode(tp, track, node);
+          card.onclick = () => inspectNode(tp, track, node);
+          cell.appendChild(card);
+          row.appendChild(cell);
+        });
+        content.appendChild(row);
+      });
+
+      const causalList = document.getElementById("causalList");
+      causalList.innerHTML = "";
+      (pdata.causal_links || []).forEach(link => {
+        const li = document.createElement("li");
+        li.className = "causal-item";
+        li.innerHTML = "<strong>[" + esc(link.from) + " → " + esc(link.to) + "]</strong> " + esc(link.label);
+        li.onmouseenter = () => highlightPair(link.from, link.to);
+        li.onmouseleave = () => clearHighlights();
+        causalList.appendChild(li);
+      });
+
+      requestAnimationFrame(drawCausalConnectors);
+    }
+
+    function inspectNode(tp, track, node) {
+      const pdata = DATA.patients[currentPatientId];
+      const related = (pdata.causal_links || []).filter(l => l.from === node.node_id || l.to === node.node_id);
+      const relHtml = related.length
+        ? '<div style="margin-top:10px; padding-top:8px; border-top:1px solid #334155;">' +
+          '<strong style="font-size:0.78rem; color:#38bdf8;">Linked Cross-Track Events:</strong>' +
+          '<ul style="margin-top:4px; padding-left:16px; font-size:0.78rem; color:#cbd5e1;">' +
+          related.map(r => "<li>[" + esc(r.from) + " → " + esc(r.to) + "] " + esc(r.label) + "</li>").join("") +
+          "</ul></div>"
+        : "";
+
+      document.getElementById("inspectorBody").innerHTML =
+        '<div style="font-size:0.78rem; color:#38bdf8; font-weight:700;">' + esc(tp.display_date) + " · " + esc(track.label) + "</div>" +
+        '<div style="font-size:1rem; font-weight:700; color:#fff; margin:4px 0;">' + esc(node.title) + ' <span class="badge">' + esc(node.badge) + "</span></div>" +
+        '<div style="font-size:0.84rem; color:#e2e8f0; margin-bottom:6px;">' + esc(node.summary) + "</div>" +
+        '<div style="font-size:0.8rem; color:#94a3b8;">' + esc(node.details) + "</div>" +
+        relHtml;
+    }
+
+    function highlightPair(fromId, toId) {
+      document.querySelectorAll(".event-card").forEach(el => el.classList.add("dimmed"));
+      const a = document.getElementById("node-" + fromId);
+      const b = document.getElementById("node-" + toId);
+      if (a) { a.classList.remove("dimmed"); a.classList.add("highlighted"); }
+      if (b) { b.classList.remove("dimmed"); b.classList.add("highlighted"); }
+    }
+
+    function clearHighlights() {
+      document.querySelectorAll(".event-card").forEach(el => {
+        el.classList.remove("highlighted");
+        if (!criticalOnly) el.classList.remove("dimmed");
+      });
+    }
+
+    function drawCausalConnectors() {
+      const svg = document.getElementById("svgOverlay");
+      svg.innerHTML = "";
+      if (!showLinks) return;
+
+      const grid = document.getElementById("swimlaneGrid");
+      const gridRect = grid.getBoundingClientRect();
+      svg.setAttribute("width", grid.scrollWidth);
+      svg.setAttribute("height", grid.scrollHeight);
+
+      const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      defs.innerHTML =
+        '<marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">' +
+        '<path d="M 0 1 L 10 5 L 0 9 z" fill="rgba(56, 189, 248, 0.75)" /></marker>';
+      svg.appendChild(defs);
+
+      const pdata = DATA.patients[currentPatientId];
+      (pdata.causal_links || []).forEach(link => {
+        const fromEl = document.getElementById("node-" + link.from);
+        const toEl = document.getElementById("node-" + link.to);
+        if (!fromEl || !toEl) return;
+        const r1 = fromEl.getBoundingClientRect();
+        const r2 = toEl.getBoundingClientRect();
+        const x1 = r1.left - gridRect.left + r1.width / 2;
+        const y1 = r1.top - gridRect.top + r1.height / 2;
+        const x2 = r2.left - gridRect.left + r2.width / 2;
+        const y2 = r2.top - gridRect.top + r2.height / 2;
+        const dx = Math.abs(x2 - x1) * 0.45 + 25;
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "M " + x1 + " " + y1 + " C " + (x1 + dx) + " " + y1 + ", " + (x2 - dx) + " " + y2 + ", " + x2 + " " + y2);
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", "rgba(56, 189, 248, 0.55)");
+        path.setAttribute("stroke-width", "2.2");
+        path.setAttribute("stroke-dasharray", "5,4");
+        path.setAttribute("marker-end", "url(#arrow)");
+        svg.appendChild(path);
+      });
+    }
+
+    document.getElementById("toggleLinksBtn").onclick = function() {
+      showLinks = !showLinks;
+      this.textContent = "Causal Connectors: " + (showLinks ? "ON" : "OFF");
+      this.classList.toggle("active", showLinks);
+      drawCausalConnectors();
+    };
+
+    document.getElementById("filterCritBtn").onclick = function() {
+      criticalOnly = !criticalOnly;
+      this.classList.toggle("active", criticalOnly);
+      renderGrid();
+    };
+
+    window.addEventListener("resize", () => requestAnimationFrame(drawCausalConnectors));
+    function renderAll() { renderPatientTabs(); renderGrid(); }
+    renderAll();
+  </script>
+</body>
+</html>
